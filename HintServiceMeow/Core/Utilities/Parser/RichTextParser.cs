@@ -2,6 +2,7 @@
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
     using System.Linq;
     using System.Text;
     using System.Text.RegularExpressions;
@@ -196,7 +197,7 @@
 
             if (sizeMatch.Success)
             {
-                int value = int.Parse(sizeMatch.Groups[1].Value);
+                float value = float.Parse(sizeMatch.Groups[1].Value, CultureInfo.InvariantCulture);
                 string unit = sizeMatch.Groups[2].Value;
 
                 size = unit.ToLower() switch
@@ -286,7 +287,7 @@
         private CharacterInfo GetChInfo(char ch)
         {
             // Get size
-            float currentFontSize = fontSizeStack.Count > 0 ? (int)fontSizeStack.Peek() : DefaultFontSize;
+            float currentFontSize = fontSizeStack.Count > 0 ? fontSizeStack.Peek() : DefaultFontSize;
 
             // Case style
             switch (caseStyleStack.LastOrDefault())

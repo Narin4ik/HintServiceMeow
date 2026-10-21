@@ -9,6 +9,9 @@ namespace HintServiceMeow.Core.Utilities.Patch
     /// </summary>
     public static class Patcher
     {
+        private static readonly Harmony AspectRatioHarmony = new("HintServiceMeow.AspectRatio");
+        private static bool aspectRatioPatched;
+
         /// <summary>
         /// Gets the active <see cref="HarmonyLib.Harmony"/> instance used to manage patches, or <see langword="null"/> if patching has not been applied.
         /// </summary>
@@ -57,6 +60,22 @@ namespace HintServiceMeow.Core.Utilities.Patch
         public static void Unpatch()
         {
             Harmony?.UnpatchAll();
+        }
+
+        internal static void PatchAspectRatio()
+        {
+            if (aspectRatioPatched)
+                return;
+
+            MethodInfo method = AccessTools.Method(typeof(AspectRatioSync), "UserCode_CmdSetAspectRatio__Single");
+            AspectRatioHarmony.Patch(method, postfix: new HarmonyMethod(typeof(Patches), nameof(Patches.AspectRatioChangedPostfix)));
+            aspectRatioPatched = true;
+        }
+
+        internal static void UnpatchAspectRatio()
+        {
+            AspectRatioHarmony.UnpatchAll(AspectRatioHarmony.Id);
+            aspectRatioPatched = false;
         }
     }
 }

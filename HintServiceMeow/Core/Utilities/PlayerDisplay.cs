@@ -13,6 +13,7 @@ namespace HintServiceMeow.Core.Utilities
     using HintServiceMeow.Core.Models;
     using HintServiceMeow.Core.Models.Arguments;
     using HintServiceMeow.Core.Models.Hints;
+    using HintServiceMeow.Core.Models.Parser;
     using HintServiceMeow.Core.Utilities.Parser;
     using HintServiceMeow.Core.Utilities.Tools;
     using HintServiceMeow.Core.Utilities.UnityAdaptors;
@@ -43,6 +44,8 @@ namespace HintServiceMeow.Core.Utilities
         private ICoroutineRunner coroutineRunner = new UnityCoroutineRunner();
 
         private Task? currentParserTask;
+
+        private HintViewport viewport = HintViewport.Default;
 
         private volatile bool isDestructed = false;
 
@@ -101,6 +104,12 @@ namespace HintServiceMeow.Core.Utilities
         {
             if (referenceHub is null)
                 throw new ArgumentNullException(nameof(referenceHub));
+
+            // A ratio of 1 is also the game's initial, unsynchronized value.
+            // The command postfix distinguishes an actual 1:1 report from that default.
+            float aspectRatio = referenceHub.aspectRatioSync.AspectRatio;
+            if (aspectRatio > 1f)
+                SetAspectRatio(aspectRatio);
 
             // Do not add display output for host
             if (referenceHub.IsHost)
@@ -651,6 +660,22 @@ namespace HintServiceMeow.Core.Utilities
             }
         }
 
+        internal void SetAspectRatio(float aspectRatio)
+        {
+            if (isDestructed || !HintViewport.IsValidAspectRatio(aspectRatio))
+                return;
+
+            lock (currentParserTaskLock)
+            {
+                if (viewport.AspectRatio == aspectRatio)
+                    return;
+
+                viewport = new HintViewport(aspectRatio);
+            }
+
+            ScheduleUpdate();
+        }
+
         internal void InternalAddHint(string name, AbstractHint hint)
         {
             hint.PropertyChanged += OnHintUpdate;
@@ -847,6 +872,10 @@ namespace HintServiceMeow.Core.Utilities
                 if (currentParserTask is not null)
                     return;
 
+                // This immutable value was captured from Unity on the main thread.
+                HintViewport renderViewport = viewport;
+                IHintParser parser = hintParser;
+
                 currentParserTask =
                     ConcurrentTaskDispatcher.Instance.Enqueue(async () =>
                     {
@@ -854,7 +883,9 @@ namespace HintServiceMeow.Core.Utilities
 
                         try
                         {
-                            richText = hintParser.ParseToMessage(hintCollection);
+                            richText = parser is HintParser builtInParser
+                                ? builtInParser.ParseToMessage(hintCollection, renderViewport)
+                                : parser.ParseToMessage(hintCollection);
 
                             mainThreadDispatcher.Dispatch(() =>
                             {
@@ -863,6 +894,12 @@ namespace HintServiceMeow.Core.Utilities
                                     // If destroyed while waiting for main thread, skip the update
                                     if (this.isDestructed)
                                         return;
+
+                                    lock (currentParserTaskLock)
+                                    {
+                                        if (!ReferenceEquals(renderViewport, viewport))
+                                            return;
+                                    }
 
                                     SendHint(richText);
                                 }
@@ -878,6 +915,9 @@ namespace HintServiceMeow.Core.Utilities
                                     }
 
                                     updateScheduler.Resume(); // Resume action after the parser task is finishing
+
+                                    if (!isDestructed && !ReferenceEquals(renderViewport, viewport))
+                                        ScheduleUpdate();
                                 }
                             });
                         }

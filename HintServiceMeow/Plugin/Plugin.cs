@@ -63,6 +63,10 @@
         {
             Instance = this;
 
+            // Install before clients connect; the normal hint patches are applied
+            // separately when the server starts waiting for players.
+            Patcher.PatchAspectRatio();
+
 #if EXILED
             Exiled.Events.Handlers.Player.Left += OnLeft;
             Exiled.Events.Handlers.Server.WaitingForPlayers += OnWaitingForPlayers;
@@ -86,6 +90,8 @@
         public override void Disable()
 #endif
         {
+            Patcher.UnpatchAspectRatio();
+
 #if EXILED
             Exiled.Events.Handlers.Player.Left -= OnLeft;
             Exiled.Events.Handlers.Server.WaitingForPlayers -= OnWaitingForPlayers;

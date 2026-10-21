@@ -14,6 +14,19 @@
         private static readonly Func<TextHint, string> TextGetter = (Func<TextHint, string>)GetTextGetter();
 
 #pragma warning disable SA1313
+        public static void AspectRatioChangedPostfix(AspectRatioSync __instance)
+        {
+            try
+            {
+                if (ReferenceHub.TryGetHub(__instance.netIdentity?.connectionToClient, out ReferenceHub hub) && !hub.IsHost)
+                    PlayerDisplay.Get(hub).SetAspectRatio(__instance.AspectRatio);
+            }
+            catch (Exception ex)
+            {
+                Logger.Instance.Error(ex);
+            }
+        }
+
         public static bool HintDisplayPatch(ref Hint hint, ref HintDisplay __instance)
         {
             try
