@@ -8,7 +8,7 @@ namespace HintServiceMeow.Core.Models.Parser
     internal sealed class HintViewport
     {
         public const float CanvasHeight = 1080f;
-        public const float Padding = 16f;
+        public const float VerticalPadding = 16f;
         public const float DefaultAspectRatio = 16f / 9f;
 
         public HintViewport(float aspectRatio)
@@ -20,13 +20,13 @@ namespace HintServiceMeow.Core.Models.Parser
 
         public float AspectRatio { get; }
 
-        public float Left => -(CanvasHeight * AspectRatio / 2f) + Padding;
+        public float Left => -(CanvasHeight * AspectRatio / 2f);
 
-        public float Right => (CanvasHeight * AspectRatio / 2f) - Padding;
+        public float Right => CanvasHeight * AspectRatio / 2f;
 
-        public float Top => Padding;
+        public float Top => VerticalPadding;
 
-        public float Bottom => CanvasHeight - Padding;
+        public float Bottom => CanvasHeight - VerticalPadding;
 
         public float Width => Right - Left;
 
