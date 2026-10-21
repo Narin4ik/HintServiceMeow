@@ -71,6 +71,7 @@
             {
                 ClearStatus();
 
+                currentLineAlignment = alignment;
                 if (alignment != HintAlignment.Center)
                     hintAlignmentStack.Push(alignment);
 

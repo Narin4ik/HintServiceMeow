@@ -291,7 +291,7 @@ namespace HintServiceMeow.Core.Utilities.Parser
         private void ParseToRichText(HintLayout layout, StringBuilder messageBuilder)
         {
             float vOffset = 700 - layout.Top + layout.LineHeight;
-            messageBuilder.AppendFormat(CultureInfo.InvariantCulture, "<align=center><size={0:0.######}><nobr>", layout.FontSize);
+            messageBuilder.AppendFormat(CultureInfo.InvariantCulture, "<align=left><size={0:0.######}><nobr>", layout.FontSize);
             foreach (LineInfo line in layout.Lines)
             {
                 vOffset -= (line.Height * layout.Scale) + layout.LineHeight;
@@ -299,11 +299,14 @@ namespace HintServiceMeow.Core.Utilities.Parser
                     continue;
 
                 float lineWidth = line.Width * layout.Scale;
+
+                // Position the line's start, rather than combining a calculated
+                // center with TextMeshPro's own width-dependent centering.
                 float x = line.Alignment switch
                 {
-                    HintAlignment.Left => layout.CenterX - ((layout.Width - lineWidth) / 2),
-                    HintAlignment.Right => layout.CenterX + ((layout.Width - lineWidth) / 2),
-                    _ => layout.CenterX,
+                    HintAlignment.Left => layout.CenterX - (layout.Width / 2),
+                    HintAlignment.Right => layout.CenterX + (layout.Width / 2) - lineWidth,
+                    _ => layout.CenterX - (lineWidth / 2),
                 };
                 string text = AlignmentTags.Replace(line.RawText, string.Empty);
                 text = SizeTags.Replace(text, match =>
@@ -314,7 +317,7 @@ namespace HintServiceMeow.Core.Utilities.Parser
                     return string.Format(CultureInfo.InvariantCulture, "<size={0:0.######}>", size * layout.Scale);
                 });
 
-                messageBuilder.AppendFormat(CultureInfo.InvariantCulture, "<pos={0:0.######}><line-height=0><voffset={1:0.######}>", x, vOffset);
+                messageBuilder.AppendFormat(CultureInfo.InvariantCulture, "<pos=50%><space={0:0.######}><line-height=0><voffset={1:0.######}>", x, vOffset);
                 messageBuilder.Append(text.TrimEnd('\r', '\n'));
                 messageBuilder.AppendLine("</voffset>");
             }
