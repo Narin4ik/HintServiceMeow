@@ -139,7 +139,7 @@ namespace HintServiceMeow.Core.Utilities.Parser
             }
         }
 
-        private HintLayout? CreateLayout(Hint hint, float horizontalMargin = 0, float verticalMargin = 0)
+        private HintLayout? CreateLayout(Hint hint)
         {
             string text = RemoveIllegalTags(hint.Content.GetText() ?? string.Empty);
             if (string.IsNullOrEmpty(text))
@@ -168,9 +168,9 @@ namespace HintServiceMeow.Core.Utilities.Parser
             height = Math.Max(0, height - lineHeight);
             float scale = 1f;
             if (width > 0)
-                scale = Math.Min(scale, Math.Max(1, viewport.Width - horizontalMargin) / width);
+                scale = Math.Min(scale, viewport.Width / width);
             if (height > 0)
-                scale = Math.Min(scale, Math.Max(1, viewport.Height - verticalMargin) / height);
+                scale = Math.Min(scale, viewport.Height / height);
 
             HintLayout layout = new(lines, hint.FontSize * scale, lineHeight * scale, scale, width * scale, height * scale);
             float x = hint.Alignment switch
@@ -197,7 +197,7 @@ namespace HintServiceMeow.Core.Utilities.Parser
             try
             {
                 temporaryHint.Set(source, source.TargetX, source.TargetY);
-                layout = CreateLayout(temporaryHint, leftMargin + rightMargin, topMargin + bottomMargin);
+                layout = CreateLayout(temporaryHint);
             }
             finally
             {
@@ -210,10 +210,12 @@ namespace HintServiceMeow.Core.Utilities.Parser
             if (viewportChanged)
                 dynamicHintPositionCache.TryRemove(source.Guid, out _);
 
-            float minimumX = Math.Max(source.LeftBoundary, viewport.Left + (layout.Width / 2) + leftMargin);
-            float maximumX = Math.Min(source.RightBoundary, viewport.Right - (layout.Width / 2) - rightMargin);
-            float minimumY = Math.Max(source.TopBoundary, viewport.Top + layout.Height + topMargin);
-            float maximumY = Math.Min(source.BottomBoundary, viewport.Bottom - bottomMargin);
+            // Margins separate hints from each other; only the visible text must
+            // fit inside the viewport. The collision area may extend past its edges.
+            float minimumX = Math.Max(source.LeftBoundary, viewport.Left + (layout.Width / 2));
+            float maximumX = Math.Min(source.RightBoundary, viewport.Right - (layout.Width / 2));
+            float minimumY = Math.Max(source.TopBoundary, viewport.Top + layout.Height);
+            float maximumY = Math.Min(source.BottomBoundary, viewport.Bottom);
 
             if (minimumX <= maximumX && minimumY <= maximumY)
             {
