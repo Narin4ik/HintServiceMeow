@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Microsoft.NET.Sdk">
 
   <Import Project="../plugin.props" />
@@ -19,9 +19,9 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageTags>hsm, scpsl, labapi, exiled</PackageTags>
     <AssemblyVersion>5.5.0.0</AssemblyVersion>
-    <FileVersion>5.5.1.0</FileVersion>
+    <FileVersion>5.5.2.0</FileVersion>
     <Title>Hint Service Meow</Title>
-    <Version>5.5.1.0</Version>
+    <Version>5.5.2.0</Version>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|AnyCPU'">
@@ -43,7 +43,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Northwood.LabAPI" Version="1.1.5" IncludeAssets="compile" PrivateAssets="all" />
+    <PackageReference Include="Northwood.LabAPI" Version="1.1.7" IncludeAssets="compile" PrivateAssets="all" />
     <PackageReference Include="Lib.Harmony" Version="2.4.2" IncludeAssets="compile" PrivateAssets="all" />
     <PackageReference Include="YamlDotNet" Version="16.3.0" IncludeAssets="compile" PrivateAssets="all" />
     <PackageReference Include="StyleCop.Analyzers" Version="$(StyleCopVersion)" IncludeAssets="All" PrivateAssets="All" />

@@ -1,7 +1,8 @@
-﻿namespace HintServiceMeow.Core.Utilities.Parser
+namespace HintServiceMeow.Core.Utilities.Parser
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
     using System.Text;
     using HintServiceMeow.Core.Enum;
     using HintServiceMeow.Core.Interface;
@@ -19,7 +20,6 @@
         private const string PlaceholderTop = "<line-height=0><voffset=9999>P</voffset>";
         private const string PlaceholderBottom = "<line-height=0><voffset=-9999>P</voffset>";
 
-        private readonly ICache<Guid, ValueTuple<float, float>> dynamicHintPositionCache;
         private readonly ICoordinateTools coordinateTool;
         private readonly IPool<StringBuilder> stringBuilderPool;
         private readonly IPool<RichTextParser> richTextParserPool;
@@ -37,6 +37,9 @@
         private readonly Queue<ValueTuple<float, float>> queue = new();
         private readonly HashSet<ValueTuple<float, float>> visited = new();
 
+        private ICache<Guid, ValueTuple<float, float>> dynamicHintPositionCache;
+        private ScreenLayout? screenLayout;
+
         public HintParser(
             ICache<Guid, ValueTuple<float, float>>? dynamicHintPositionCache = null,
             ICoordinateTools? coordinateTool = null,
@@ -51,9 +54,156 @@
             this.hintPool = hintPool ?? HintPool.Instance;
         }
 
-        public string ParseToMessage(HintCollection collection)
+        public string ParseToMessage(HintCollection collection) => ParseToMessage(collection, null);
+
+        internal static string RemoveIllegalTags(string raw)
+        {
+            if (string.IsNullOrEmpty(raw))
+                return string.Empty;
+
+            // Skip if no tag
+            bool needsModification = false;
+            int i = 0;
+            for (; i < raw.Length; i++)
+            {
+                char c = raw[i];
+                if (c == '{' || c == '}')
+                {
+                    needsModification = true;
+                    break;
+                }
+
+                if (c == '<' &&
+                    (StartsWithIgnoreCase(raw, i, "<line-height=") ||
+                     StartsWithIgnoreCase(raw, i, "<voffset=") ||
+                     StartsWithIgnoreCase(raw, i, "<pos=") ||
+                     StartsWithIgnoreCase(raw, i, "</voffset>")))
+                {
+                    needsModification = true;
+                    break;
+                }
+            }
+
+            if (!needsModification)
+                return raw;
+
+            StringBuilder sb = StringBuilderPool.Instance.Rent();
+
+            int length = raw.Length;
+
+            i = 0;
+            while (i < length)
+            {
+                char c = raw[i];
+
+                // Remove all { and } since {} are somehow not displayable
+                if (c == '{' || c == '}')
+                {
+                    i++;
+                    continue;
+                }
+
+                // Remove all illegal tags
+                if (c == '<')
+                {
+                    if (StartsWithIgnoreCase(raw, i, "<noparse>"))
+                    {
+                        int end = raw.IndexOf("</noparse>", i + 9, StringComparison.OrdinalIgnoreCase);
+                        end = end < 0 ? length : end + 10;
+                        sb.Append(raw, i, end - i);
+                        i = end;
+                        continue;
+                    }
+
+                    if (StartsWithIgnoreCase(raw, i, "<line-height=") ||
+                        StartsWithIgnoreCase(raw, i, "<voffset=") ||
+                        StartsWithIgnoreCase(raw, i, "<pos="))
+                    {
+                        int closeIndex = raw.IndexOf('>', i);
+                        if (closeIndex != -1)
+                        {
+                            i = closeIndex + 1; // Skip the whole tag
+                            continue;
+                        }
+                    }
+                    else if (StartsWithIgnoreCase(raw, i, "</voffset>"))
+                    {
+                        i += 10; // Skip "</voffset>"
+                        continue;
+                    }
+                }
+
+                // If not illegal, reserve the character
+                sb.Append(c);
+                i++;
+            }
+
+            string result = sb.ToString();
+            StringBuilderPool.Instance.Return(sb);
+            return result;
+        }
+
+        internal string ParseToMessage(HintCollection collection, ScreenLayout? layout)
+        {
+            if (!ReferenceEquals(screenLayout, layout))
+                dynamicHintPositionCache = new Cache<Guid, ValueTuple<float, float>>(500);
+            screenLayout = layout;
+            try
+            {
+                return ParseCore(collection);
+            }
+            finally
+            {
+                orderedHintGroups.Clear();
+                dynamicHintColliders.Clear();
+                orderedHints.Clear();
+                dynamicHints.Clear();
+                sortBuffer.Clear();
+                foreach (Hint rented in rentedHints)
+                    hintPool.Return(rented);
+                rentedHints.Clear();
+            }
+        }
+
+        private static bool StartsWithIgnoreCase(string str, int startIndex, string prefix)
+        {
+            if (startIndex + prefix.Length > str.Length)
+                return false;
+
+            for (int i = 0; i < prefix.Length; i++)
+            {
+                char c1 = str[startIndex + i];
+                char c2 = prefix[i];
+
+                // To lower case
+                if (c1 >= 'A' && c1 <= 'Z')
+                    c1 = (char)(c1 + 32);
+                if (c2 >= 'A' && c2 <= 'Z')
+                    c2 = (char)(c2 + 32);
+
+                if (c1 != c2)
+                    return false;
+            }
+
+            return true;
+        }
+
+        private string ParseCore(HintCollection collection)
         {
             IReadOnlyList<IReadOnlyList<AbstractHint>> allGroups = collection.AllGroups;
+            if (screenLayout != null)
+            {
+                var snapshots = new List<IReadOnlyList<AbstractHint>>(allGroups.Count);
+                foreach (var group in allGroups)
+                {
+                    var hints = new List<AbstractHint>(group.Count);
+                    foreach (AbstractHint item in group)
+                        hints.Add(item is Hint fixedHint && !fixedHint.Hide ? screenLayout.Fit(fixedHint, coordinateTool) : item);
+                    snapshots.Add(hints);
+                }
+
+                allGroups = snapshots;
+            }
 
             for (int i = 0; i < allGroups.Count; i++)
             {
@@ -121,41 +271,37 @@
 
             StringBuilder messageBuilder = stringBuilderPool.Rent();
 
-            messageBuilder.AppendLine(PlaceholderTop); // Place Holder
-
-            for (int i = 0; i < orderedHintGroups.Count; i++)
+            try
             {
-                // When a group ends
-                if (orderedHintGroups[i] is null)
+                messageBuilder.AppendLine(PlaceholderTop); // Place Holder
+
+                for (int i = 0; i < orderedHintGroups.Count; i++)
                 {
-                    messageBuilder.AppendLine("</align></size></b></i>"); // Make sure one group will not affect another group
-                    continue;
+                    // When a group ends
+                    if (orderedHintGroups[i] is null)
+                    {
+                        messageBuilder.AppendLine("</align></size></b></i>"); // Make sure one group will not affect another group
+                        continue;
+                    }
+
+                    ParseToRichText(orderedHintGroups[i], messageBuilder);
                 }
 
-                ParseToRichText(orderedHintGroups[i], messageBuilder);
+                messageBuilder.AppendLine(PlaceholderBottom); // Place Holder
+
+                return messageBuilder.ToString();
             }
-
-            messageBuilder.AppendLine(PlaceholderBottom); // Place Holder
-
-            // Clear buffer
-            orderedHintGroups.Clear();
-            dynamicHintColliders.Clear();
-
-            // Return rented hints to pool
-            for (int i = 0; i < rentedHints.Count; i++)
+            finally
             {
-                hintPool.Return(rentedHints[i]);
+                stringBuilderPool.Return(messageBuilder);
             }
-
-            rentedHints.Clear();
-
-            string message = messageBuilder.ToString();
-            stringBuilderPool.Return(messageBuilder);
-            return message;
         }
 
         private Hint? ParseToHint(DynamicHint dynamicHint, IList<TextArea> colliders)
         {
+            Guid cacheKey = dynamicHint.Guid;
+            if (screenLayout != null)
+                dynamicHint = screenLayout.Prepare(dynamicHint, coordinateTool);
             float dhWidth = coordinateTool.GetTextWidth(dynamicHint);
             float dhHeight = coordinateTool.GetTextHeight(dynamicHint);
 
@@ -163,7 +309,7 @@
             ValueTuple<float, float> targetCoordinate = ValueTuple.Create(dynamicHint.TargetX, dynamicHint.TargetY);
             TextArea targetArea = DynamicHintToArea(targetCoordinate);
 
-            bool targetAreaAvailable = true;
+            bool targetAreaAvailable = IsAvailable(targetCoordinate, targetArea);
 
             for (int i = 0; i < colliders.Count; i++)
             {
@@ -177,7 +323,7 @@
             if (targetAreaAvailable)
             {
                 // Clear previous cached position since the target position is usable again
-                dynamicHintPositionCache.TryRemove(dynamicHint.Guid, out _);
+                dynamicHintPositionCache.TryRemove(cacheKey, out _);
 
                 Hint hint = hintPool.Rent();
                 rentedHints.Add(hint);
@@ -186,9 +332,10 @@
             }
 
             targetAreaAvailable = true;
-            if (dynamicHintPositionCache.TryGet(dynamicHint.Guid, out ValueTuple<float, float> cachedPosition))
+            if (dynamicHintPositionCache.TryGet(cacheKey, out ValueTuple<float, float> cachedPosition))
             {
                 TextArea dhArea = DynamicHintToArea(cachedPosition);
+                targetAreaAvailable = IsAvailable(cachedPosition, dhArea);
 
                 for (int i = 0; i < colliders.Count; i++)
                 {
@@ -212,7 +359,8 @@
             queue.Clear();
             visited.Clear();
 
-            queue.Enqueue(targetCoordinate);
+            if (screenLayout == null || (dynamicHint.LeftBoundary <= dynamicHint.RightBoundary && dynamicHint.TopBoundary <= dynamicHint.BottomBoundary))
+                queue.Enqueue(targetCoordinate);
 
             while (queue.TryDequeue(out ValueTuple<float, float> tuple))
             {
@@ -222,7 +370,7 @@
 
                 TextArea dhArea = DynamicHintToArea(tuple);
 
-                targetAreaAvailable = true;
+                targetAreaAvailable = IsAvailable(tuple, dhArea);
                 for (int i = 0; i < colliders.Count; i++)
                 {
                     if (dhArea.HasIntersection(colliders[i]))
@@ -234,7 +382,7 @@
 
                 if (targetAreaAvailable)
                 {
-                    dynamicHintPositionCache.Add(dynamicHint.Guid, tuple);
+                    dynamicHintPositionCache.Add(cacheKey, tuple);
 
                     Hint hint = hintPool.Rent();
                     rentedHints.Add(hint);
@@ -243,13 +391,13 @@
                 }
 
                 if (tuple.Item2 < dynamicHint.BottomBoundary)
-                    queue.Enqueue(ValueTuple.Create(tuple.Item1, tuple.Item2 + 10));
+                    queue.Enqueue(ValueTuple.Create(tuple.Item1, Math.Min(dynamicHint.BottomBoundary, tuple.Item2 + 10)));
                 if (tuple.Item2 > dynamicHint.TopBoundary)
-                    queue.Enqueue(ValueTuple.Create(tuple.Item1, tuple.Item2 - 10));
+                    queue.Enqueue(ValueTuple.Create(tuple.Item1, Math.Max(dynamicHint.TopBoundary, tuple.Item2 - 10)));
                 if (tuple.Item1 < dynamicHint.RightBoundary)
-                    queue.Enqueue(ValueTuple.Create(tuple.Item1 + 50, tuple.Item2));
+                    queue.Enqueue(ValueTuple.Create(Math.Min(dynamicHint.RightBoundary, tuple.Item1 + 50), tuple.Item2));
                 if (tuple.Item1 > dynamicHint.LeftBoundary)
-                    queue.Enqueue(ValueTuple.Create(tuple.Item1 - 50, tuple.Item2));
+                    queue.Enqueue(ValueTuple.Create(Math.Max(dynamicHint.LeftBoundary, tuple.Item1 - 50), tuple.Item2));
             }
 
             // Failed to find a position, return according to DynamicHintStrategy
@@ -258,11 +406,16 @@
                 Hint hint = hintPool.Rent();
                 rentedHints.Add(hint);
                 hint.Set(dynamicHint, dynamicHint.TargetX, dynamicHint.TargetY);
-                return hint;
+                return screenLayout?.Fit(hint, coordinateTool) ?? hint;
             }
 
             // DynamicHintStrategy.Hide
             return null;
+
+            bool IsAvailable(ValueTuple<float, float> point, TextArea area) =>
+                screenLayout == null || (screenLayout.Contains(area)
+                && point.Item1 >= dynamicHint.LeftBoundary && point.Item1 <= dynamicHint.RightBoundary
+                && point.Item2 >= dynamicHint.TopBoundary && point.Item2 <= dynamicHint.BottomBoundary);
 
             TextArea DynamicHintToArea(ValueTuple<float, float> tuple) =>
                 new()
@@ -282,6 +435,27 @@
             float width = coordinateTool.GetTextWidth(hint);
             float height = coordinateTool.GetTextHeight(hint);
 
+            if (screenLayout != null)
+            {
+                float left = float.MaxValue;
+                float right = float.MinValue;
+                foreach (LineInfo line in coordinateTool.GetLineInfos(HintTextFormatter.GetText(hint), hint.FontSize, hint.Alignment))
+                {
+                    float x = screenLayout.FitLineX(hint.XCoordinate, line.Width, line.Alignment);
+                    float center = line.Alignment switch
+                    {
+                        HintAlignment.Left => x - ScreenLayout.TextContainerHalfWidth + (line.Width / 2f),
+                        HintAlignment.Right => x + ScreenLayout.TextContainerHalfWidth - (line.Width / 2f),
+                        _ => x,
+                    };
+                    left = Math.Min(left, center - (line.Width / 2f));
+                    right = Math.Max(right, center + (line.Width / 2f));
+                }
+
+                if (left != float.MaxValue)
+                    return new TextArea { Top = yCoordinate - height, Bottom = yCoordinate, Left = left, Right = right };
+            }
+
             return new TextArea
             {
                 Top = yCoordinate - height,
@@ -298,7 +472,7 @@
 
             // Parse into line infos
             RichTextParser parser = richTextParserPool.Rent();
-            IReadOnlyList<LineInfo> lineList = parser.ParseText(text, hint.FontSize);
+            IReadOnlyList<LineInfo> lineList = parser.ParseText(text, hint.FontSize, hint.Alignment);
             richTextParserPool.Return(parser);
 
             if (lineList.Count == 0)
@@ -328,11 +502,12 @@
                 if (string.IsNullOrEmpty(lineList[i].RawText))
                     continue;
 
-                if (hint.XCoordinate != 0)
-                    messageBuilder.AppendFormat("<pos={0:0.#}>", hint.XCoordinate); // X coordinate
+                float x = screenLayout?.FitLineX(hint.XCoordinate, lineList[i].Width, lineList[i].Alignment) ?? hint.XCoordinate;
+                if (x != 0)
+                    messageBuilder.AppendFormat(CultureInfo.InvariantCulture, "<pos={0:0.######}>", x); // X coordinate
                 messageBuilder.Append("<line-height=0>"); // Make sure each line will not affect each other's position
                 if (vOffset != 0)
-                    messageBuilder.AppendFormat("<voffset={0:0.#}>", vOffset); // Y coordinate
+                    messageBuilder.AppendFormat(CultureInfo.InvariantCulture, "<voffset={0:0.######}>", vOffset); // Y coordinate
 
                 messageBuilder.Append(lineList[i].RawText); // Content
 
@@ -345,107 +520,6 @@
             if (hint.Alignment != HintAlignment.Center)
                 messageBuilder.Append("</align>");
             messageBuilder.Append("</size>");
-        }
-
-        private string RemoveIllegalTags(string raw)
-        {
-            if (string.IsNullOrEmpty(raw))
-                return string.Empty;
-
-            // Skip if no tag
-            bool needsModification = false;
-            int i = 0;
-            for (; i < raw.Length; i++)
-            {
-                char c = raw[i];
-                if (c == '{' || c == '}')
-                {
-                    needsModification = true;
-                    break;
-                }
-
-                if (c == '<' &&
-                    (StartsWithIgnoreCase(raw, i, "<line-height=") ||
-                     StartsWithIgnoreCase(raw, i, "<voffset=") ||
-                     StartsWithIgnoreCase(raw, i, "<pos=") ||
-                     StartsWithIgnoreCase(raw, i, "</voffset>")))
-                {
-                    needsModification = true;
-                    break;
-                }
-            }
-
-            if (!needsModification)
-                return raw;
-
-            StringBuilder sb = stringBuilderPool.Rent();
-
-            int length = raw.Length;
-
-            i = 0;
-            while (i < length)
-            {
-                char c = raw[i];
-
-                // Remove all { and } since {} are somehow not displayable
-                if (c == '{' || c == '}')
-                {
-                    i++;
-                    continue;
-                }
-
-                // Remove all illegal tags
-                if (c == '<')
-                {
-                    if (StartsWithIgnoreCase(raw, i, "<line-height=") ||
-                        StartsWithIgnoreCase(raw, i, "<voffset=") ||
-                        StartsWithIgnoreCase(raw, i, "<pos="))
-                    {
-                        int closeIndex = raw.IndexOf('>', i);
-                        if (closeIndex != -1)
-                        {
-                            i = closeIndex + 1; // Skip the whole tag
-                            continue;
-                        }
-                    }
-                    else if (StartsWithIgnoreCase(raw, i, "</voffset>"))
-                    {
-                        i += 10; // Skip "</voffset>"
-                        continue;
-                    }
-                }
-
-                // If not illegal, reserve the character
-                sb.Append(c);
-                i++;
-            }
-
-            string result = sb.ToString();
-            stringBuilderPool.Return(sb);
-            return result;
-        }
-
-        private bool StartsWithIgnoreCase(string str, int startIndex, string prefix)
-        {
-            if (startIndex + prefix.Length > str.Length)
-                return false;
-
-            for (int i = 0; i < prefix.Length; i++)
-            {
-                char c1 = str[startIndex + i];
-                char c2 = prefix[i];
-
-                // To lower case
-                if (c1 >= 'A' && c1 <= 'Z')
-                    c1 = (char)(c1 + 32);
-                if (c2 >= 'A' && c2 <= 'Z')
-                    c2 = (char)(c2 + 32);
-
-                if (c1 != c2)
-                    return false;
-            }
-
-            return true;
         }
     }
 }

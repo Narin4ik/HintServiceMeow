@@ -27,6 +27,8 @@ To install this plugin, follow these steps:
 
 ## Documentation
 
+- [Адаптация экрана и сохранение регистра (HSM 5.5.2)](Docs/Russian/ScreenAdaptation.md)
+
 Here are some useful resources to get you started:
 
 - [Getting Started](/Docs/English/GettingStarted.md)

@@ -1,4 +1,4 @@
-﻿namespace HintServiceMeow.Core.Utilities.Parser
+namespace HintServiceMeow.Core.Utilities.Parser
 {
     using System;
     using System.Collections.Generic;
@@ -44,6 +44,7 @@
         // Character status
         private float vOffset;
         private TextStyle style = TextStyle.Normal;
+        private bool noParse;
 
         public IReadOnlyList<LineInfo> ParseText(string? text, int size = 20, HintAlignment alignment = HintAlignment.Center)
         {
@@ -59,9 +60,11 @@
             }
 
             // Replace linebreak
-            text = text
-                .Replace("<br>", "\n")
-                .Replace("\\n", "\n");
+            text = Regex.Replace(
+                text,
+                @"<noparse>.*?(?:</noparse>|$)|<br>|\\n",
+                match => match.Value.StartsWith("<noparse>", StringComparison.OrdinalIgnoreCase) ? match.Value : "\n",
+                RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
             List<LineInfo> lines = [];
             List<CharacterInfo> currentChInfos = [];
@@ -73,6 +76,7 @@
                 if (alignment != HintAlignment.Center)
                     hintAlignmentStack.Push(alignment);
 
+                currentLineAlignment = alignment;
                 fontSizeStack.Push(size);
                 caseStyleStack.Add(CaseStyle.Smallcaps);
 
@@ -161,6 +165,7 @@
 
             vOffset = 0;
             style = TextStyle.Normal;
+            noParse = false;
             fontSizeStack.Clear();
             caseStyleStack.Clear();
             scriptStyles.Clear();
@@ -196,13 +201,14 @@
 
             if (sizeMatch.Success)
             {
-                int value = int.Parse(sizeMatch.Groups[1].Value);
+                float value = float.Parse(sizeMatch.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
                 string unit = sizeMatch.Groups[2].Value;
 
                 size = unit.ToLower() switch
                 {
                     "px" => value,
                     "%" => DefaultFontSize * value / 100f,
+                    "em" => DefaultFontSize * value,
                     _ => value,
                 };
 
@@ -286,7 +292,7 @@
         private CharacterInfo GetChInfo(char ch)
         {
             // Get size
-            float currentFontSize = fontSizeStack.Count > 0 ? (int)fontSizeStack.Peek() : DefaultFontSize;
+            float currentFontSize = fontSizeStack.Count > 0 ? fontSizeStack.Peek() : DefaultFontSize;
 
             // Case style
             switch (caseStyleStack.LastOrDefault())
@@ -356,6 +362,9 @@
                 if (tagEndIndex != -1)
                 {
                     tag = text.Substring(index, tagEndIndex - index + 1);
+                    if (noParse && !tag.Equals("</noparse>", StringComparison.OrdinalIgnoreCase))
+                        return false;
+
                     isTag = Tags.IsTag(tag);
 
                     if (isTag)
@@ -377,6 +386,12 @@
                 return false;
 
             tag = tag.ToLower();
+
+            if (tag == "<noparse>" || tag == "</noparse>")
+            {
+                noParse = tag == "<noparse>";
+                return true;
+            }
 
             // Handle end tag
             if (tag.StartsWith("</"))

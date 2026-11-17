@@ -1,9 +1,9 @@
-﻿namespace HintServiceMeow.Plugin
+namespace HintServiceMeow.Plugin
 {
     using System;
     using HintServiceMeow.Core.Utilities;
-    using HintServiceMeow.Core.Utilities.Patch;
     using HintServiceMeow.Core.Utilities.Parser;
+    using HintServiceMeow.Core.Utilities.Patch;
     using HintServiceMeow.Core.Utilities.Tools;
     using HintServiceMeow.UI.Utilities;
 
@@ -28,9 +28,9 @@
 
         public override string Author => "MeowServer";
 
-        public override Version Version => new(5, 5, 1);
+        public override Version Version => new(5, 5, 2);
 
-        public override Version RequiredExiledVersion => new(9, 6, 0);
+        public override Version RequiredExiledVersion => new(9, 15, 3);
 
         public override Exiled.API.Enums.PluginPriority Priority => Exiled.API.Enums.PluginPriority.Highest;
 #else
@@ -38,7 +38,7 @@
 
         public override string Author => "MeowServer";
 
-        public override Version Version => new(5, 5, 0);
+        public override Version Version => new(5, 5, 2);
 
         public override Version RequiredApiVersion => new(LabApiProperties.CompiledVersion);
 
@@ -67,6 +67,7 @@
 
 #if EXILED
             Exiled.Events.Handlers.Player.Left += OnLeft;
+            Exiled.Events.Handlers.Player.ChangedRatio += OnChangedRatio;
             Exiled.Events.Handlers.Server.WaitingForPlayers += OnWaitingForPlayers;
 #else
             ServerEvents.WaitingForPlayers += OnWaitingForPlayers;
@@ -90,6 +91,7 @@
         {
 #if EXILED
             Exiled.Events.Handlers.Player.Left -= OnLeft;
+            Exiled.Events.Handlers.Player.ChangedRatio -= OnChangedRatio;
             Exiled.Events.Handlers.Server.WaitingForPlayers -= OnWaitingForPlayers;
 #else
             PlayerEvents.Left -= OnLeft;
@@ -105,6 +107,13 @@
         {
             Patcher.Patch();
         }
+
+#if EXILED
+        private static void OnChangedRatio(Exiled.Events.EventArgs.Player.ChangedRatioEventArgs ev)
+        {
+            PlayerDisplay.Get(ev.Player.ReferenceHub).RefreshScreenLayout();
+        }
+#endif
 
 #if EXILED
         private static void OnLeft(Exiled.Events.EventArgs.Player.LeftEventArgs ev)

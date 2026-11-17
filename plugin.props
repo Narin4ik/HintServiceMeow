@@ -24,8 +24,8 @@
         <HarmonyVersion>2.3.6</HarmonyVersion>
 		<YamlDotNetVersion>11.0.1</YamlDotNetVersion>
         <StyleCopVersion>1.1.118</StyleCopVersion>
-		<LabAPIVersion>1.0.2</LabAPIVersion>
-        <ExiledVersion>9.6.0</ExiledVersion>
+		<LabAPIVersion>1.1.7</LabAPIVersion>
+        <ExiledVersion>9.15.3</ExiledVersion>
 
         <Copyright>Copyright © $(Authors) 2020 - $([System.DateTime]::Now.ToString("yyyy"))</Copyright>
         <RepositoryType>Git</RepositoryType>

@@ -18,8 +18,6 @@ namespace HintServiceMeow.Core.Utilities.Parser
 
         private static readonly ICache<string, string> PreserveCaseCache = new Cache<string, string>(1000);
 
-        internal static bool PreserveCaseByDefault { get; set; }
-
         private enum CaseControlTag
         {
             None = -1,
@@ -29,6 +27,8 @@ namespace HintServiceMeow.Core.Utilities.Parser
             Smallcaps,
             NoParse,
         }
+
+        internal static bool PreserveCaseByDefault { get; set; }
 
         /// <summary>
         /// Gets the current text for a hint and applies its render-time formatting options.

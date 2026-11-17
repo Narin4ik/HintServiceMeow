@@ -46,6 +46,12 @@ namespace HintServiceMeow.Core.Utilities
 
         private volatile bool isDestructed = false;
 
+        private volatile ScreenLayout? screenLayout;
+        private float lastAspectRatio;
+        private float lastScreenHeight;
+        private float lastScreenTop;
+        private float lastScreenPadding;
+
         internal PlayerDisplay(
             IPlayerContext playerContext,
             HintCollection? displayHints = null,
@@ -716,6 +722,41 @@ namespace HintServiceMeow.Core.Utilities
 
         internal void ShowCompatibilityHint(string assemblyName, string? content, float duration) => adapter.ShowHint(new CompatibilityAdaptorArg(assemblyName, content, duration));
 
+        // Called only from the Unity coroutine or EXILED's main-thread event.
+        internal void RefreshScreenLayout()
+        {
+            var config = Plugin.Plugin.Instance?.Config;
+            float ratio = playerContext is ReferenceHubContext context && context.ReferenceHub != null
+                ? context.ReferenceHub.aspectRatioSync?.AspectRatio ?? 0f
+                : 0f;
+            float height = config?.ScreenReferenceHeight ?? 1000f;
+            float top = config?.ScreenTop ?? 0f;
+            float padding = config?.ScreenPadding ?? 20f;
+            bool enabled = config?.EnableScreenAdaptation == true && ScreenLayout.IsFinite(ratio) && ratio >= 1f && ratio <= 10f
+                && ScreenLayout.IsFinite(height) && height >= 100f && height <= 10000f
+                && ScreenLayout.IsFinite(top) && ScreenLayout.IsFinite(padding) && padding >= 0f && padding < height / 2f;
+            if (!enabled)
+            {
+                if (screenLayout != null)
+                {
+                    screenLayout = null;
+                    ForceUpdate(true);
+                }
+
+                return;
+            }
+
+            if (screenLayout != null && ratio == lastAspectRatio && height == lastScreenHeight && top == lastScreenTop && padding == lastScreenPadding)
+                return;
+
+            lastAspectRatio = ratio;
+            lastScreenHeight = height;
+            lastScreenTop = top;
+            lastScreenPadding = padding;
+            screenLayout = new ScreenLayout(ratio, height, top, padding);
+            ForceUpdate(true);
+        }
+
         private IEnumerator<float> CoroutineMethod()
         {
             while (true)
@@ -731,6 +772,8 @@ namespace HintServiceMeow.Core.Utilities
 
                 try
                 {
+                    RefreshScreenLayout();
+
                     // Periodic update
                     if (updateScheduler.Elapsed > TimeSpan.FromSeconds(5))
                         ScheduleUpdate();
@@ -847,6 +890,8 @@ namespace HintServiceMeow.Core.Utilities
                 if (currentParserTask is not null)
                     return;
 
+                ScreenLayout? layoutSnapshot = screenLayout;
+
                 currentParserTask =
                     ConcurrentTaskDispatcher.Instance.Enqueue(async () =>
                     {
@@ -854,7 +899,9 @@ namespace HintServiceMeow.Core.Utilities
 
                         try
                         {
-                            richText = hintParser.ParseToMessage(hintCollection);
+                            richText = hintParser is HintParser standardParser
+                                ? standardParser.ParseToMessage(hintCollection, layoutSnapshot)
+                                : hintParser.ParseToMessage(hintCollection);
 
                             mainThreadDispatcher.Dispatch(() =>
                             {
@@ -863,6 +910,12 @@ namespace HintServiceMeow.Core.Utilities
                                     // If destroyed while waiting for main thread, skip the update
                                     if (this.isDestructed)
                                         return;
+
+                                    if (!ReferenceEquals(layoutSnapshot, screenLayout))
+                                    {
+                                        ForceUpdate(true);
+                                        return;
+                                    }
 
                                     SendHint(richText);
                                 }
