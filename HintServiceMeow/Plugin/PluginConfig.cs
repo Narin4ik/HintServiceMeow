@@ -16,6 +16,9 @@
 
         public bool Debug { get; set; } = false;
 
+        [Description("Preserve original letter casing for all hints, including hints from existing plugins. Explicit case tags take precedence.")]
+        public bool PreserveCaseByDefault { get; set; } = false;
+
         [Description("By using this feature, it might make plugin that is imcompatible with HintServiceMeow compatible. This is a experimental feature")]
         public bool UseHintCompatibilityAdapter { get; set; } = false;
 

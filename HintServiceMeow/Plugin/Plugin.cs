@@ -3,6 +3,7 @@
     using System;
     using HintServiceMeow.Core.Utilities;
     using HintServiceMeow.Core.Utilities.Patch;
+    using HintServiceMeow.Core.Utilities.Parser;
     using HintServiceMeow.Core.Utilities.Tools;
     using HintServiceMeow.UI.Utilities;
 
@@ -62,6 +63,7 @@
 #endif
         {
             Instance = this;
+            HintTextFormatter.PreserveCaseByDefault = Config.PreserveCaseByDefault;
 
 #if EXILED
             Exiled.Events.Handlers.Player.Left += OnLeft;
